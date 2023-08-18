@@ -113,7 +113,7 @@ def create_excel(urls):
                 summary_data.append(
                     {"Title": "Error processing URL", "URL": url + " (" + str(e) + ")"}
                 )
-                st.error(f"Error processing URL: {url}\n{e}")
+                # st.error(f"Error processing URL: {url}\n{e}")
 
         # Create the summary DataFrame
         summary_df = pd.DataFrame(summary_data)
