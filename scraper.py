@@ -16,7 +16,8 @@ def move_sheet_to_first(workbook, sheet_name):
     sheet_index = sheet_names.index(sheet_name)
 
     # Reorder the sheets list to move the desired sheet to the first position
-    new_order = [sheet_index] + [i for i in range(len(sheet_names)) if i != sheet_index]
+    new_order = [sheet_index] + \
+        [i for i in range(len(sheet_names)) if i != sheet_index]
 
     # Rearrange the sheets in the workbook based on the new order
     workbook._sheets = [workbook._sheets[i] for i in new_order]
@@ -37,21 +38,26 @@ def extract_article_headers(xml_content):
     # print(xml_content)
     headers_data = []
 
-    # Extract title attribute from the main tag
-    title_match = re.search(r'<doc[^>]*title="([^"]+)"', xml_content)
-    if title_match:
-        title_text = title_match.group(1).strip()
-        headers_data.append({"Headings": title_text, "H": "h1"})
+    # Extract h1 header if available
+    header_tags = re.findall(r'<head rend="(h1)">(.*?)<\/head>', xml_content)
+    if header_tags:
+        cleaned_header_text = re.sub(r"<[^>]*>", "", header_tags[0][1])
+        headers_data.append(
+            {"Headings": cleaned_header_text.strip(), "H": "h1"})
+    else:
+        # Extract title attribute from the main tag if h1 header not found
+        title_match = re.search(r'<doc[^>]*title="([^"]+)"', xml_content)
+        if title_match:
+            title_text = title_match.group(1).strip()
+            headers_data.append({"Headings": title_text, "H": "h1"})
 
+    # Process the rest of the header tags
     header_tags = re.findall(r'<head rend="(h\d+)">(.*?)<\/head>', xml_content)
     for header_type, header_text in header_tags:
-        cleaned_header_text = re.sub(r"<[^>]*>", "", header_text)
-        headers_data.append({"Headings": cleaned_header_text.strip(), "H": header_type})
-    if (
-        len(headers_data) >= 2
-        and headers_data[0]["Headings"] == headers_data[1]["Headings"]
-    ):
-        headers_data.pop(0)
+        if header_type != "h1":
+            cleaned_header_text = re.sub(r"<[^>]*>", "", header_text)
+            headers_data.append(
+                {"Headings": cleaned_header_text.strip(), "H": header_type})
 
     return headers_data
 
@@ -69,8 +75,9 @@ def clean_headers_dataframe(headers_df):
 
 
 def url_to_markdown(url):
-    html_content = trafilatura.fetch_url(url)
+    print(url)
 
+    html_content = trafilatura.fetch_url(url)
     # Extract and clean the textual content using trafilatura
     xml_content = trafilatura.extract(
         html_content,
@@ -90,39 +97,39 @@ def create_excel(urls):
         summary_data = []
 
         for idx, url in enumerate(urls, start=1):
-            for _ in range(10):  # Try 10 times
-                try:
-                    markdown_content = url_to_markdown(url)
-                    headers_data = extract_article_headers(markdown_content)
-                    headers_df = pd.DataFrame(headers_data)
-                    cleaned_headers_df = clean_headers_dataframe(headers_df.copy())
+            try:
 
-                    # Add h1 headers and URLs to the summary dataframe
-                    h1_header = cleaned_headers_df.loc[
-                        cleaned_headers_df["H"] == "h1", "Headings"
-                    ].iloc[0]
-                    valid_worksheet_name = re.sub(r'[\/:*?"<>|]', "_", h1_header)
+                markdown_content = url_to_markdown(url)
+                headers_data = extract_article_headers(markdown_content)
+                headers_df = pd.DataFrame(headers_data)
+                cleaned_headers_df = clean_headers_dataframe(headers_df.copy())
 
-                    worksheet_name = valid_worksheet_name[:31]
+                # Add h1 headers and URLs to the summary dataframe
+                h1_header = cleaned_headers_df.loc[
+                    cleaned_headers_df["H"] == "h1", "Headings"
+                ].iloc[0]
+                valid_worksheet_name = re.sub(r'[\/:*?"<>|]', "_", h1_header)
 
-                    summary_data.append({"Title": h1_header, "URL": url})
+                worksheet_name = valid_worksheet_name[:31]
 
-                    cleaned_headers_df.to_excel(
-                        writer, sheet_name=worksheet_name, index=False
-                    )
-                    break  # Break out of the retry loop if successful
-                except Exception as e:
-                    summary_data.append(
-                        {
-                            "Title": "Error processing URL",
-                            "URL": url + " (" + str(e) + ")",
-                        }
-                    )
-                    print(f"Error processing URL: {url}\n{e}")
+                summary_data.append({"Title": h1_header, "URL": url})
+
+                cleaned_headers_df.to_excel(
+                    writer, sheet_name=worksheet_name, index=False
+                )
+            except Exception as e:
+                summary_data.append(
+                    {
+                        "Title": "Error processing URL",
+                        "URL": url + " (" + str(e) + ")",
+                    }
+                )
+                print(f"Error processing URL: {url}\n{e}")
 
         # Create the summary DataFrame
         summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name="summary", index=False, startrow=1)
+        summary_df.to_excel(writer, sheet_name="summary",
+                            index=False, startrow=1)
 
     # Load the generated workbook and move the summary sheet to first
     wb = openpyxl.load_workbook(excel_output)
@@ -140,11 +147,12 @@ def main():
     )
     args = parser.parse_args()
 
-    with open(args.file, "r") as url_file:
-        urls = url_file.read().strip().split("\n")
-
+    with open(args.file, "r", encoding="utf-8") as url_file:
+        urls = [url.strip() for url in url_file]
+    print(urls)
     excel_output = create_excel(urls)
 
+    print(excel_output)
     # Save the Excel file
     output_filename = "new_output.xlsx"
     with open(output_filename, "wb") as output_file:
